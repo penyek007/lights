@@ -182,28 +182,37 @@ const API_KEY = "5a4020802a1bc4898a6df02a6102fa22"; // <-- вставь свой
 const CITY = "Kalyazin";
 const URL = `https://api.openweathermap.org/data/2.5/weather?q=${CITY}&units=metric&lang=ru&appid=${API_KEY}`;
 
-function icon(desc) {
-  if (desc.includes("ясно")) return "☀️";
-  if (desc.includes("обла")) return "☁️";
-  if (desc.includes("дожд")) return "🌧️";
-  if (desc.includes("снег")) return "❄️";
+function iconById(id) {
+  if (id >= 200 && id < 300) return "⛈️";
+  if (id >= 300 && id < 500) return "🌦️";
+  if (id >= 500 && id < 600) return "🌧️";
+  if (id >= 600 && id < 700) return "❄️";
+  if (id >= 700 && id < 800) return "🌫️";
+  if (id === 800) return "☀️";
+  if (id > 800) return "☁️";
   return "🌡️";
 }
 
 function loadWeather() {
   fetch(URL)
-    .then(r => r.json())
-    .then(d => {
-      const t = Math.round(d.main.temp);
-      const dsc = d.weather[0].description;
-      weatherMini.textContent = `${icon(dsc)} ${t}°C · Калязин`;
+    .then(r => {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
     })
-    .catch(() => {
+    .then(d => {
+      const temp = Math.round(d.main.temp);
+      const wid = d.weather[0].id;
+      weatherMini.textContent =
+        `${iconById(wid)} ${temp}°C · Калязин`;
+    })
+    .catch(err => {
+      console.error(err);
       weatherMini.textContent = "⚠️ погода недоступна";
     });
 }
 
-setInterval(loadWeather, 20 * 60 * 1000);
+loadWeather();
+setInterval(loadWeather, 10 * 60 * 1000); // обновление каждые 10 минут
 </script>
 
 </body>
