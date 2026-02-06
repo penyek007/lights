@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>lights controll</title>
+<title>lights control</title>
 <link rel="icon" href="favicon.png" type="image/png">
 
 <style>
@@ -29,10 +29,18 @@ body {
 }
 
 .bulb {
-  font-size: 140px;
   margin-bottom: 40px;
+  display: flex;
+  justify-content: center;
 }
 
+.bulb img {
+  width: 300px;
+  height: 300px;
+  object-fit: contain;
+}
+
+/* ---------- LOGIN ---------- */
 .login-box {
   display: flex;
   background: #f4c430;
@@ -63,7 +71,6 @@ body {
   width: 100%;
   height: 100%;
   background: #8fd3f4;
-  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -107,7 +114,7 @@ body {
   opacity: 0.4;
 }
 
-/* ---------- WEATHER MINI ---------- */
+/* ---------- WEATHER ---------- */
 #weatherMini {
   margin-top: 40px;
   font-size: 22px;
@@ -125,8 +132,9 @@ body {
 <!-- FRAME 1 -->
 <div id="login">
   <div class="bulb">
-  <img src="https://penyek007.github.io/lights/bulb%20on.png" alt="bulb">
-</div>
+    <img src="https://penyek007.github.io/lights/bulb%20on.png" alt="bulb">
+  </div>
+
   <div class="login-box">
     <input type="password" id="password" placeholder="Password"
       onkeydown="if(event.key==='Enter') checkPassword()">
@@ -139,28 +147,23 @@ body {
   <div class="grid">
 
     <div class="card"
-      style="background-image:url('data:image/jpeg;base64,КАРТИНКА_СЮДА');"
-      onclick="toggle(this)">
-    </div>
+      style="background-image:url('https://penyek007.github.io/lights/mainroad.jpg');"
+      onclick="toggle(this)"></div>
 
     <div class="card"
-      style="background-image:url('data:image/jpeg;base64,КАРТИНКА_СЮДА');"
-      onclick="toggle(this)">
-    </div>
+      style="background-image:url('https://penyek007.github.io/lights/inbankment.jpg');"
+      onclick="toggle(this)"></div>
 
     <div class="card"
-      style="background-image:url('data:image/jpeg;base64,КАРТИНКА_СЮДА');"
-      onclick="toggle(this)">
-    </div>
+      style="background-image:url('pic');"
+      onclick="toggle(this)"></div>
 
     <div class="card"
-      style="background-image:url('data:image/jpeg;base64,КАРТИНКА_СЮДА');"
-      onclick="toggle(this)">
-    </div>
+      style="background-image:url('pic');"
+      onclick="toggle(this)"></div>
 
   </div>
 
-  <!-- WEATHER -->
   <div id="weatherMini">⏳ загрузка погоды…</div>
 </div>
 
@@ -180,7 +183,7 @@ function toggle(el) {
 }
 
 /* ---------- WEATHER ---------- */
-const API_KEY = "5a4020802a1bc4898a6df02a6102fa22"; // <-- вставь свой ключ https://openweathermap.org/api
+const API_KEY = "5a4020802a1bc4898a6df02a6102fa22";
 const CITY = "Kalyazin";
 const URL = `https://api.openweathermap.org/data/2.5/weather?q=${CITY}&units=metric&lang=ru&appid=${API_KEY}`;
 
@@ -197,24 +200,17 @@ function iconById(id) {
 
 function loadWeather() {
   fetch(URL)
-    .then(r => {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.json();
-    })
+    .then(r => r.json())
     .then(d => {
       const temp = Math.round(d.main.temp);
       const wid = d.weather[0].id;
       weatherMini.textContent =
         `${iconById(wid)} ${temp}°C · Калязин`;
     })
-    .catch(err => {
-      console.error(err);
+    .catch(() => {
       weatherMini.textContent = "⚠️ погода недоступна";
     });
 }
-
-loadWeather();
-setInterval(loadWeather, 10 * 60 * 1000); // обновление каждые 10 минут
 </script>
 
 </body>
