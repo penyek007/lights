@@ -1,0 +1,456 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+
+const char* ssid = "sashimi Wi-Fi";
+const char* wifi_password = "89260713447";
+const char* PASSWORD = "9495";
+
+#define RELAY_1 16
+#define RELAY_2 14
+#define RELAY_3 12
+#define RELAY_4 13
+#define LED LED_BUILTIN   // ===== ДОБАВЛЕНО =====
+
+ESP8266WebServer server(80);
+
+const char* headerKeys[] = { "Cookie" };
+const size_t headerKeysCount = 1;
+
+String sessionToken = "";
+bool relayState[4] = {false,false,false,false};
+
+// ===== WiFi TIMER (ДОБАВЛЕНО) =====
+unsigned long wifiTimer = 0;
+const unsigned long WIFI_CHECK_INTERVAL = 10000;
+
+// ================= RELAY =================
+void setRelay(uint8_t index, bool state) {
+  relayState[index] = state;
+  uint8_t pin;
+
+  if(index==0) pin = RELAY_1;
+  if(index==1) pin = RELAY_2;
+  if(index==2) pin = RELAY_3;
+  if(index==3) pin = RELAY_4;
+
+  digitalWrite(pin, state ? HIGH : LOW);
+}
+
+// ================= TOKEN =================
+String generateToken(){
+  const char chars[]="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  String t="";
+  for(int i=0;i<20;i++)
+    t+=chars[random(sizeof(chars)-1)];
+  return t;
+}
+
+bool hasValidCookie(){
+  if(!server.hasHeader("Cookie")) return false;
+  String cookie=server.header("Cookie");
+  return cookie.indexOf("auth="+sessionToken)>=0;
+}
+
+// ================= MANIFEST =================
+const char MANIFEST_JSON[] PROGMEM = R"====(
+{
+  "name": "Lights Control",
+  "short_name": "Lights",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#8fd3f4",
+  "theme_color": "#f4c430",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/penyek007/lights/main/icon-512.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://raw.githubusercontent.com/penyek007/lights/main/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
+)====";
+
+// ================= SERVICE WORKER =================
+const char SW_JS[] PROGMEM = R"====(
+const CACHE_NAME = "lights-cache-v3";
+
+const URLS_TO_CACHE = [
+  "/",
+  "/manifest.json",
+  "https://raw.githubusercontent.com/penyek007/lights/main/icon-512.png",
+  "https://raw.githubusercontent.com/penyek007/lights/main/favicon.ico",
+  "https://penyek007.github.io/lights/bulb%20on.png",
+  "https://penyek007.github.io/lights/mainroad.jpg",
+  "https://penyek007.github.io/lights/inbankment.jpg"
+];
+
+self.addEventListener("install", event => {
+  self.skipWaiting();
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(URLS_TO_CACHE))
+  );
+});
+
+self.addEventListener("activate", event => {
+  event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener("fetch", event => {
+  event.respondWith(
+    caches.match(event.request).then(response => {
+      return response || fetch(event.request);
+    })
+  );
+});
+)====";
+
+// ================= HTML =================
+const char INDEX_HTML[] PROGMEM = R"====(
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/x-icon" href="https://raw.githubusercontent.com/penyek007/lights/main/favicon.ico">
+<link rel="apple-touch-icon" href="https://raw.githubusercontent.com/penyek007/lights/main/icon-512.png">
+
+<meta name="theme-color" content="#f4c430">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+<title>lights control</title>
+
+<style>
+* { box-sizing:border-box; font-family:Arial,sans-serif; }
+
+html, body {
+  margin:0;
+  width:100%;
+  height:100%;
+  overscroll-behavior:none;
+  touch-action:manipulation;
+}
+
+#login {
+  width:100%;
+  height:100%;
+  background:#fff6a3;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+}
+
+.bulb img {
+  width:min(60vw,260px);
+  height:auto;
+}
+
+.login-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  background: #f4c430;
+  padding: 6px;
+  border-radius: 14px;
+  width: min(95vw, 320px);
+  box-sizing: border-box;
+}
+
+.login-box input {
+  flex: 1 1 120px;
+  min-height: 44px;
+  padding: 10px 12px;
+  font-size: 16px;
+  border: none;
+  outline: none;
+  border-radius: 10px;
+}
+
+.login-box button {
+  flex: 0 0 auto;
+  height: 44px;
+  padding: 0 10px;
+  font-size: 20px;
+  border: none;
+  border-radius: 10px;
+  background:white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#gridScreen {
+  display:none;
+  width:100%;
+  height:100%;
+  background:#8fd3f4;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+}
+
+.grid {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(120px,1fr));
+  gap:20px;
+  width:90vw;
+  max-width:500px;
+}
+
+.card {
+  aspect-ratio:1/1;
+  border:4px solid #b5e48c;
+  box-shadow:0 0 14px rgba(255,235,59,0.9);
+  position:relative;
+  cursor:pointer;
+  transition:.2s;
+  overflow:hidden;
+  background-size:cover;
+  background-position:center;
+  border-radius:18px;
+}
+
+.card::after {
+  content:"💡";
+  position:absolute;
+  top:10px;
+  right:10px;
+  font-size:24px;
+  opacity:.3;
+}
+
+.card.active {
+  border-color:#ffeb3b;
+  box-shadow:0 0 20px rgba(181,228,140,1);
+}
+
+.card.active::after {
+  opacity:1;
+}
+
+#weatherMini {
+  margin-top:30px;
+  font-size:20px;
+  font-weight:bold;
+  color:#0b3c5d;
+}
+</style>
+</head>
+
+<body>
+
+<div id="login">
+  <div class="bulb">
+    <img src="https://penyek007.github.io/lights/bulb%20on.png">
+  </div>
+
+  <div class="login-box">
+    <input type="password" id="pwd" placeholder="Password"
+      onkeydown="if(event.key==='Enter') auth()">
+    <button onclick="auth()">→</button>
+  </div>
+</div>
+
+<div id="gridScreen">
+  <div class="grid">
+    <div class="card" id="r1"
+      style="background-image:url('https://penyek007.github.io/lights/mainroad.jpg');"
+      onclick="toggleRelay(1)"></div>
+
+    <div class="card" id="r2"
+      style="background-image:url('https://penyek007.github.io/lights/inbankment.jpg');"
+      onclick="toggleRelay(2)"></div>
+
+    <div class="card" id="r3" style="background:#ccc;" onclick="toggleRelay(3)"></div>
+    <div class="card" id="r4" style="background:#bbb;" onclick="toggleRelay(4)"></div>
+  </div>
+
+  <div id="weatherMini">⏳ загрузка погоды…</div>
+</div>
+
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js');
+}
+
+function showGrid(){
+  login.style.display="none";
+  gridScreen.style.display="flex";
+  loadState();
+  loadWeather();
+}
+
+function auth(){
+  fetch("/check",{method:"POST",
+    headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:"p="+encodeURIComponent(pwd.value)})
+  .then(r=>r.text())
+  .then(t=>{ if(t==="OK") showGrid(); else alert("Неверный пароль"); });
+}
+
+function toggleRelay(n){
+  fetch("/relay",{method:"POST",
+    headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:"num="+n})
+  .then(r=>r.json())
+  .then(data=>{
+    document.getElementById("r"+n)
+      .classList.toggle("active", data.state);
+  });
+}
+
+function loadState(){
+  fetch("/state")
+    .then(r=>r.json())
+    .then(s=>{
+      for(let i=1;i<=4;i++){
+        document.getElementById("r"+i)
+          .classList.toggle("active", s["r"+i]);
+      }
+    });
+}
+
+fetch("/auth").then(r=>{ if(r.status===200) showGrid(); });
+
+const API_KEY = "5a4020802a1bc4898a6df02a6102fa22";
+const CITY = "Kalyazin";
+const URL = `https://api.openweathermap.org/data/2.5/weather?q=${CITY}&units=metric&lang=ru&appid=${API_KEY}`;
+
+function iconById(id) {
+  if (id >= 200 && id < 300) return "⛈️";
+  if (id >= 300 && id < 500) return "🌦️";
+  if (id >= 500 && id < 600) return "🌧️";
+  if (id >= 600 && id < 700) return "❄️";
+  if (id >= 700 && id < 800) return "🌫️";
+  if (id === 800) return "☀️";
+  if (id > 800) return "☁️";
+  return "🌡️";
+}
+
+function loadWeather() {
+  fetch(URL)
+    .then(r => r.json())
+    .then(d => {
+      const temp = Math.round(d.main.temp);
+      const wid = d.weather[0].id;
+      weatherMini.textContent =
+        `${iconById(wid)} ${temp}°C · Калязин`;
+    })
+    .catch(() => {
+      weatherMini.textContent = "⚠️ погода недоступна";
+    });
+}
+</script>
+
+</body>
+</html>
+)====";
+
+// ================= HANDLERS =================
+void handleRoot(){
+  server.sendHeader("Cache-Control","public, max-age=86400");
+  server.send_P(200,"text/html",INDEX_HTML);
+}
+
+void handleSW(){
+  server.sendHeader("Cache-Control","no-cache");
+  server.send_P(200,"application/javascript",SW_JS);
+}
+
+void handleManifest(){
+  server.send(200,"application/json",MANIFEST_JSON);
+}
+
+void handleCheck(){
+  if(server.hasArg("p") && server.arg("p")==PASSWORD){
+    sessionToken=generateToken();
+    server.sendHeader(
+      "Set-Cookie",
+      "auth=" + sessionToken + "; Path=/; Max-Age=31536000; SameSite=Lax"
+    );
+    server.send(200,"text/plain","OK");
+  } else server.send(403,"text/plain","NO");
+}
+
+void handleRelay(){
+  if(!hasValidCookie()){ server.send(403,"text/plain","DENIED"); return; }
+
+  int n=server.arg("num").toInt()-1;
+  relayState[n]=!relayState[n];
+  setRelay(n,relayState[n]);
+
+  server.send(200,"application/json",
+    String("{\"state\":")+ (relayState[n]?"true":"false") +"}");
+}
+
+void handleState(){
+  String json="{";
+  json+="\"r1\":"+(String)(relayState[0]?"true":"false")+ ",";
+  json+="\"r2\":"+(String)(relayState[1]?"true":"false")+ ",";
+  json+="\"r3\":"+(String)(relayState[2]?"true":"false")+ ",";
+  json+="\"r4\":"+(String)(relayState[3]?"true":"false")+"}";
+  server.send(200,"application/json",json);
+}
+
+void handleAuth(){
+  if(hasValidCookie())
+    server.send(200,"text/plain","OK");
+  else
+    server.send(403,"text/plain","NO");
+}
+
+// ================= SETUP =================
+void setup(){
+  pinMode(RELAY_1,OUTPUT);
+  pinMode(RELAY_2,OUTPUT);
+  pinMode(RELAY_3,OUTPUT);
+  pinMode(RELAY_4,OUTPUT);
+
+  pinMode(LED, OUTPUT);          // ===== ДОБАВЛЕНО =====
+  digitalWrite(LED, HIGH);       // LED погашен
+
+  WiFi.begin(ssid,wifi_password);
+  randomSeed(ESP.getCycleCount());
+
+  server.collectHeaders(headerKeys,headerKeysCount);
+
+  server.on("/",handleRoot);
+  server.on("/sw.js",handleSW);
+  server.on("/manifest.json",handleManifest);
+  server.on("/check",HTTP_POST,handleCheck);
+  server.on("/relay",HTTP_POST,handleRelay);
+  server.on("/state",handleState);
+  server.on("/auth",handleAuth);
+
+  server.begin();
+}
+
+// ================= LOOP =================
+void loop(){
+  server.handleClient();
+
+  // ===== WiFi индикатор (ДОБАВЛЕНО) =====
+  if (millis() - wifiTimer >= WIFI_CHECK_INTERVAL) {
+    wifiTimer = millis();
+
+    if (WiFi.status() == WL_CONNECTED) {
+      digitalWrite(LED, LOW);   // подключено — горит
+    } else {
+      for(int i=0;i<3;i++){
+        digitalWrite(LED, LOW); delay(200);
+        digitalWrite(LED, HIGH); delay(200);
+      }
+    }
+  }
+}
